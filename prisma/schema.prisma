@@ -1,0 +1,953 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       Int     @id @default(autoincrement())
+  email    String?  @unique
+  fullName String?
+  phone    String  @unique
+  password String
+
+  balance       Decimal @default(0) @db.Decimal(18, 2)
+  frozenBalance Decimal @default(0) @db.Decimal(18, 2)
+
+  isOnline Boolean   @default(false)
+  lastSeen DateTime?
+
+  createdAt            DateTime              @default(now())
+  role                 UserRole              @default(USER)
+  withdrawPassword     String?
+  publicId             String                @unique
+  isBlocked            Boolean               @default(false)
+  supportConversations SupportConversation[]
+
+  isVerified Boolean @default(false)
+
+  verification UserVerification?
+
+  presence UserPresence?
+
+  adminLogs     AdminLog[]     @relation("AdminLogRelation")
+  commissions   Commission[]   @relation("CommissionReceiver")
+  usedGifts     GiftCode[]     @relation("GiftUsedBy")
+  notifications Notification[]
+  recharges     Recharge[]
+  transactions  Transaction[]
+  bank          UserBank?
+  withdrawals   Withdrawal[]
+
+  applications Application[]
+  priceChanges AssetPriceHistory[]
+
+  cryptoOrders      CryptoOrder[]
+  serviceRequests   ServiceRequest[]
+  paymentReferences PaymentReference[]
+
+  ledgerEntries LedgerEntry[]
+
+  kixikilaRequests KixikilaRequest[]
+  kixikilaMembers  KixikilaMember[]
+  kixikilaPayments KixikilaPayment[]
+
+  // REFERRAL
+referralCode    String   @unique
+referredByCode  String?
+
+invited         Referral[] @relation("UserInviter")
+inviter         Referral[] @relation("UserInvited")
+
+referralTree    ReferralTree?
+
+// TASK
+dailyTasks      DailyTask[]
+
+// PRODUTOS
+userProducts    UserProduct[]
+
+// LIMITE
+withdrawalLimit WithdrawalLimit?
+
+  @@index([email])
+  @@index([phone])
+  @@index([publicId])
+  @@index([role])
+}
+
+model UserVerification {
+  id          Int    @id @default(autoincrement())
+  userId      Int    @unique
+  fullName    String
+  frontImage  String
+  backImage   String
+  selfieImage String
+
+  status VerificationStatus @default(PENDING)
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+  reviewedBy  Int?
+
+  rejectionReason String?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model OtpCode {
+  id        Int      @id @default(autoincrement())
+  phone     String
+  code      String
+  type      OtpType
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([phone, type])
+  @@index([expiresAt])
+  @@index([code])
+  @@index([used])
+}
+
+model UserPresence {
+  id     Int @id @default(autoincrement())
+  userId Int @unique
+
+  isOnline  Boolean  @default(false)
+  lastSeen  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([isOnline])
+}
+
+model EmailLog {
+  id        Int         @id @default(autoincrement())
+  userId    Int?
+  to        String
+  subject   String
+  status    EmailStatus @default(PENDING)
+  attempts  Int         @default(0)
+  error     String?
+  createdAt DateTime    @default(now())
+  sentAt    DateTime?
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Banco {
+  id        Int      @id @default(autoincrement())
+  name      String
+  bank      String
+  iban      String   @unique
+  createdAt DateTime @default(now())
+}
+
+/**
+ * ================= WALLET =================
+ */
+
+model Recharge {
+  id         Int            @id @default(autoincrement())
+  userId     Int
+  amount     Decimal        @db.Decimal(18, 2)
+  status     RechargeStatus @default(PENDING)
+  approvedAt DateTime?
+  rejectedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Withdrawal {
+  id         Int              @id @default(autoincrement())
+  userId     Int
+  amount     Decimal          @db.Decimal(18, 2)
+  fee        Decimal          @db.Decimal(18, 2)
+  status     WithdrawalStatus @default(PENDING)
+  approvedAt DateTime?
+  rejectedAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  externalTransferId String?
+  bankResponse       Json?
+  failureReason      String?
+  processedAt        DateTime?
+  idempotencyKey     String?   @unique
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@index([createdAt])
+}
+
+model Transaction {
+  id        Int             @id @default(autoincrement())
+  userId    Int
+  type      TransactionType
+  amount    Decimal         @db.Decimal(18, 2)
+  createdAt DateTime        @default(now())
+
+  status         PaymentStatus?
+  externalId     String?
+  reference      String?
+  idempotencyKey String?        @unique
+  description    String?
+  metadata       Json?
+  processedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+/**
+ * ================= OTC =================
+ */
+
+model Asset {
+  id        Int     @id @default(autoincrement())
+  symbol    String  @unique
+  buyPrice  Decimal @db.Decimal(18, 8)
+  sellPrice Decimal @db.Decimal(18, 8)
+  isActive  Boolean @default(true)
+
+  orders       CryptoOrder[]
+  priceHistory AssetPriceHistory[]
+}
+
+model AssetPriceHistory {
+  id        Int      @id @default(autoincrement())
+  assetId   Int
+  oldBuy    Decimal  @db.Decimal(18, 8)
+  newBuy    Decimal  @db.Decimal(18, 8)
+  oldSell   Decimal  @db.Decimal(18, 8)
+  newSell   Decimal  @db.Decimal(18, 8)
+  adminId   Int
+  createdAt DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+  admin User  @relation(fields: [adminId], references: [id])
+}
+
+model CryptoOrder {
+  id      Int       @id @default(autoincrement())
+  userId  Int
+  assetId Int
+  type    OrderType
+
+  quantity  Decimal @db.Decimal(18, 8)
+  priceUsed Decimal @db.Decimal(18, 8)
+  totalAoa  Decimal @db.Decimal(18, 2)
+
+  status      OrderStatus @default(PENDING)
+  expiresAt   DateTime
+  txHash      String?
+  createdAt   DateTime    @default(now())
+  completedAt DateTime?
+
+  user  User  @relation(fields: [userId], references: [id])
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  conversation SupportConversation?
+
+  @@index([userId, status])
+  @@index([assetId])
+  @@index([expiresAt])
+}
+
+/**
+ * ================= INTERMEDIAÇÃO =================
+ */
+
+model Partner {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique
+  contact    String?
+  email      String?
+  isActive   Boolean  @default(true)
+  apiBaseUrl String?
+  apiKey     String?
+  apiSecret  String?
+  webhookUrl String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  services    Service[]
+  settlements PartnerSettlement[]
+  ServicePlan ServicePlan[]
+}
+
+model Service {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String
+  commission  Decimal  @db.Decimal(5, 2)
+  isActive    Boolean  @default(true)
+  partnerId   Int
+  createdAt   DateTime @default(now())
+
+  partner     Partner             @relation(fields: [partnerId], references: [id])
+  plans       ServicePlan[] // ✅ RELAÇÃO INVERSA
+  requests    ServiceRequest[]
+  settlements PartnerSettlement[]
+}
+
+model ServicePlan {
+  id         Int      @id @default(autoincrement())
+  partnerId  Int
+  serviceId  Int // ✅ ADICIONAR
+  name       String
+  price      Decimal  @db.Decimal(18, 2)
+  externalId String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  type       PlanType @default(OTHER)
+
+  partner  Partner          @relation(fields: [partnerId], references: [id])
+  service  Service          @relation(fields: [serviceId], references: [id]) // ✅ ADICIONAR
+  requests ServiceRequest[]
+
+  @@unique([name, partnerId])
+}
+
+model ServiceRequest {
+  id        Int           @id @default(autoincrement())
+  userId    Int
+  planId    Int
+  amount    Decimal       @db.Decimal(18, 2)
+  status    ServiceStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user      User        @relation(fields: [userId], references: [id])
+  plan      ServicePlan @relation(fields: [planId], references: [id])
+  Service   Service?    @relation(fields: [serviceId], references: [id])
+  serviceId Int?
+}
+
+model CompanyRevenue {
+  id        Int         @id @default(autoincrement())
+  type      RevenueType
+  amount    Decimal     @db.Decimal(18, 2)
+  reference String?
+  createdAt DateTime    @default(now())
+}
+
+model CompanyExpense {
+  id          Int         @id @default(autoincrement())
+  type        ExpenseType
+  amount      Decimal     @db.Decimal(18, 2)
+  reference   String?
+  description String?
+  createdAt   DateTime    @default(now())
+}
+
+enum ExpenseType {
+  PARTNER_PAYOUT
+  OPERATIONAL_COST
+  BANK_WITHDRAW
+  ADJUSTMENT
+}
+
+model PartnerSettlement {
+  id          Int              @id @default(autoincrement())
+  partnerId   Int
+  serviceId   Int
+  grossAmount Decimal          @db.Decimal(18, 2)
+  commission  Decimal          @db.Decimal(18, 2)
+  netAmount   Decimal          @db.Decimal(18, 2)
+  status      SettlementStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  paidAt      DateTime?
+
+  partner Partner @relation(fields: [partnerId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
+}
+
+/**
+ * ================= PAGAMENTOS FUTUROS =================
+ */
+
+model PaymentReference {
+  id        Int           @id @default(autoincrement())
+  userId    Int
+  entity    String
+  reference String        @unique
+  amount    Decimal?      @db.Decimal(18, 2)
+  status    PaymentStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  expiresAt DateTime?
+  paidAt    DateTime?
+
+  externalReferenceId String?
+  callbackPayload     Json?
+  signatureValidated  Boolean @default(false)
+  idempotencyKey      String? @unique
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/**
+ * ================= OUTROS =================
+ */
+
+model Commission {
+  id         Int            @id @default(autoincrement())
+  userId     Int
+  fromUserId Int
+  level      Int
+  type       CommissionType
+  amount     Decimal        @db.Decimal(18, 2)
+  createdAt  DateTime       @default(now())
+
+  user User @relation("CommissionReceiver", fields: [userId], references: [id])
+}
+
+model GiftCode {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  value     Decimal  @db.Decimal(18, 2)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  usedById  Int?
+  createdAt DateTime @default(now())
+  usedBy    User?    @relation("GiftUsedBy", fields: [usedById], references: [id])
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  title     String
+  message   String
+  type      NotificationType @default(INFO)
+  userId    Int?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User?            @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+}
+
+model SupportConversation {
+  id Int @id @default(autoincrement())
+
+  userId  Int
+  orderId Int? @unique
+
+  status      ChatStatus @default(OPEN)
+  lastMessage String?
+  unreadUser  Int        @default(0)
+  unreadAdmin Int        @default(0)
+
+  typingUserId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User         @relation(fields: [userId], references: [id])
+  order CryptoOrder? @relation(fields: [orderId], references: [id])
+
+  messages SupportMessage[]
+}
+
+model SupportMessage {
+  id             Int                @id @default(autoincrement())
+  conversationId Int
+  senderId       Int
+  isAdmin        Boolean
+  type           SupportMessageType @default(TEXT)
+
+  content String?
+
+  imageUrl      String?
+  imagePublicId String?
+
+  isRead    Boolean   @default(false)
+  editedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+enum SupportMessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+}
+
+enum ChatStatus {
+  OPEN
+  CLOSED
+}
+
+model UserBank {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  name      String
+  bank      String
+  iban      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminLog {
+  id        Int      @id @default(autoincrement())
+  adminId   Int
+  action    String
+  entity    String?
+  entityId  Int?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  admin User @relation("AdminLogRelation", fields: [adminId], references: [id])
+}
+
+model Application {
+  id Int @id @default(autoincrement())
+
+  userId       Int
+  amount       Decimal @db.Decimal(18, 2)
+  interestRate Decimal @db.Decimal(5, 2)
+  periodDays   Int
+
+  expectedProfit Decimal @db.Decimal(18, 2)
+  totalReturn    Decimal @db.Decimal(18, 2)
+
+  status ApplicationStatus @default(ACTIVE)
+
+  startDate    DateTime  @default(now())
+  maturityDate DateTime
+  redeemedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([maturityDate])
+}
+
+model LedgerEntry {
+  id            Int        @id @default(autoincrement())
+  userId        Int?
+  type          LedgerType
+  amount        Decimal    @db.Decimal(18, 2)
+  balanceBefore Decimal?   @db.Decimal(18, 2)
+  balanceAfter  Decimal?   @db.Decimal(18, 2)
+  transactionId Int?
+  reference     String?
+  description   String?
+  metadata      Json?
+  createdAt     DateTime   @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([transactionId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+model CompanyBankAccount {
+  id            Int      @id @default(autoincrement())
+  bankName      String
+  accountNumber String
+  iban          String?
+  balance       Decimal  @db.Decimal(18, 2)
+  currency      String   @default("AOA")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model BankWebhookLog {
+  id          Int       @id @default(autoincrement())
+  source      String
+  payload     Json
+  signature   String?
+  isValid     Boolean   @default(false)
+  processed   Boolean   @default(false)
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+}
+
+model BankReconciliation {
+  id         Int       @id @default(autoincrement())
+  externalId String
+  amount     Decimal   @db.Decimal(18, 2)
+  matched    Boolean   @default(false)
+  matchedAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model BetSlip {
+  id          String   @id @default(uuid())
+  totalOdds   Float
+  strategy    String
+  status      String   @default("pending") // pending | won | lost
+  profit      Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  games       BetGame[]
+}
+
+model BetGame {
+  id          String   @id @default(uuid())
+
+  home        String
+  away        String
+  league      String
+  matchDate   DateTime
+
+  prediction  String   // CASA | FORA
+  odd         Float
+
+  result      String?  // CASA | FORA
+  status      String   @default("pending") // pending | won | lost
+
+  score       String?
+
+  apiMatchId  String?
+
+  betSlipId   String
+  betSlip     BetSlip  @relation(fields: [betSlipId], references: [id])
+}
+
+
+model KixikilaGroup {
+  id           String   @id @default(uuid())
+  name         String
+  contribution Decimal  @db.Decimal(18, 2)
+  membersLimit Int
+  cycleMonths  Int
+  status       String   @default("OPEN")
+  createdAt    DateTime @default(now())
+
+  members  KixikilaMember[]
+  requests KixikilaRequest[]
+  payments KixikilaPayment[]
+}
+
+model KixikilaRequest {
+  id Int @id @default(autoincrement())
+
+  userId  Int
+  groupId String
+
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+
+  user  User          @relation(fields: [userId], references: [id])
+  group KixikilaGroup @relation(fields: [groupId], references: [id])
+
+  @@unique([userId, groupId])
+}
+
+model KixikilaMember {
+  id Int @id @default(autoincrement())
+
+  userId  Int
+  groupId String
+
+  position Int
+
+  approved Boolean @default(false)
+
+  contribution Decimal @db.Decimal(18, 2)
+  frozenAmount Decimal @db.Decimal(18, 2)
+
+  totalReceived  Decimal @default(0) @db.Decimal(18, 2)
+  totalToReceive Decimal @db.Decimal(18, 2)
+
+  status String @default("ACTIVE")
+
+  joinedAt DateTime @default(now())
+
+  user  User          @relation(fields: [userId], references: [id])
+  group KixikilaGroup @relation(fields: [groupId], references: [id])
+
+  payments KixikilaPayment[]
+
+  @@unique([userId, groupId])
+}
+
+model KixikilaPayment {
+  id Int @id @default(autoincrement())
+
+  userId   Int
+  groupId  String
+  memberId Int
+
+  round Int
+
+  amount  Decimal @db.Decimal(18, 2)
+  penalty Decimal @default(0) @db.Decimal(18, 2)
+
+  status String @default("PENDING")
+
+  dueDate DateTime
+  paidAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  user   User           @relation(fields: [userId], references: [id])
+  group  KixikilaGroup  @relation(fields: [groupId], references: [id])
+  member KixikilaMember @relation(fields: [memberId], references: [id])
+
+  @@unique([memberId, round])
+}
+
+enum LedgerType {
+  DEBIT
+  CREDIT
+}
+
+// =========================
+// REFERRAL (EQUIPA)
+// =========================
+model Referral {
+  id          Int      @id @default(autoincrement())
+  inviterId   Int
+  invitedId   Int      @unique
+  level       Int      // 1,2,3
+  createdAt   DateTime @default(now())
+
+  inviter User @relation("UserInviter", fields: [inviterId], references: [id])
+  invited User @relation("UserInvited", fields: [invitedId], references: [id])
+
+  @@index([inviterId])
+}
+
+// =========================
+// REFERRAL TREE (CACHE)
+// =========================
+model ReferralTree {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+
+  level1Ids Int[]
+  level2Ids Int[]
+  level3Ids Int[]
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// =========================
+// TASK (ISOLADO)
+// =========================
+model DailyTask {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  date      DateTime
+  reward    Decimal  @db.Decimal(18, 2)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// =========================
+// PRODUTO (ISOLADO)
+// =========================
+model Product {
+  id           Int      @id @default(autoincrement())
+  name         String
+  price        Decimal  @db.Decimal(18, 2)
+  dailyRate    Decimal  @db.Decimal(18, 2)
+  durationDays Int
+
+  maxPerUser   Int?     // null = ilimitado | 1 = só uma compra
+
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  userProducts UserProduct[]
+}
+
+// =========================
+// COMPRA DE PRODUTO
+// =========================
+model UserProduct {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  productId Int
+
+  amount     Decimal  @db.Decimal(18, 2)
+  dailyRate  Decimal  @db.Decimal(18, 2)
+  startDate  DateTime @default(now())
+  endDate    DateTime
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([userId])
+}
+
+// =========================
+// LIMITE DE SAQUE
+// =========================
+model WithdrawalLimit {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  dailyLimit  Decimal  @db.Decimal(18, 2)
+  usedToday   Decimal  @default(0) @db.Decimal(18, 2)
+  lastReset   DateTime
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+/**
+ * ================= ENUMS =================
+ */
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum RechargeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  SUCCESS
+  REJECTED
+}
+
+enum TransactionType {
+  RECHARGE
+  WITHDRAW
+  BUY_DEBIT
+  SELL_CREDIT
+  SERVICE_DEBIT
+  REFUND
+  COMMISSION
+  GIFT
+
+  INVESTMENT_DEBIT
+  INVESTMENT_CREDIT
+  INVESTMENT_CANCEL_REFUND
+}
+
+enum CommissionType {
+  RECHARGE
+  PURCHASE
+}
+
+enum OrderType {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  PENDING // ordem criada
+  PAID // comprador marcou como pago
+  RELEASED // vendedor liberou
+  CANCELLED // cancelada pelo usuário
+  EXPIRED // expirou por tempo
+  DISPUTED // disputa aberta
+}
+
+enum ServiceStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum RevenueType {
+  SERVICE_COMMISSION
+  OTC_PROFIT
+}
+
+enum SettlementStatus {
+  PENDING
+  PAID
+  REJECTED
+}
+
+enum PlanType {
+  RECHARGE
+  DATA
+  TV
+  ELECTRICITY
+  BETTING
+  VOICE
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  SUCCESS
+  SYSTEM
+}
+
+enum ApplicationStatus {
+  ACTIVE
+  MATURED
+  REDEEMED
+  CANCELLED
+}
+
+enum VerificationStatus {
+  PENDING
+  IN_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum OtpType {
+  REGISTER
+  LOGIN
+  RESET_PASSWORD
+  WITHDRAW
+}
+
+enum ReferralLevel {
+  LEVEL_1
+  LEVEL_2
+  LEVEL_3
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+}
+
+enum ProductStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
