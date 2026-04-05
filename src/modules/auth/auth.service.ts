@@ -23,7 +23,7 @@ function generateReferralCode(): string {
   const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26))
   const numbers2 = Math.floor(100 + Math.random() * 900)
 
-  return `${numbers1}${letter}${numbers2}` // EX: 12345A678
+  return `${numbers1}${letter}${numbers2}`
 }
 
 async function generateUniqueReferralCode(): Promise<string> {
@@ -42,8 +42,6 @@ async function generateUniqueReferralCode(): Promise<string> {
 
 export class AuthService {
 
-  /* ================= REGISTER ================= */
-
   static async register(
     phone: string,
     password: string,
@@ -51,7 +49,6 @@ export class AuthService {
   ) {
 
     const normalizedPhone = phone.trim()
-
     const normalizedReferral = referralCode.trim().toUpperCase()
 
     if (!normalizedReferral) {
@@ -82,14 +79,11 @@ export class AuthService {
         throw new Error("INVALID_REFERRAL_CODE")
       }
 
-      /* ================= ANTI SELF REFERRAL ================= */
-
       if (inviter.phone === normalizedPhone) {
         throw new Error("INVALID_REFERRAL_CODE")
       }
 
       const myReferralCode = await generateUniqueReferralCode()
-
       const BONUS = new Prisma.Decimal(100)
 
       const newUser = await tx.user.create({
@@ -117,41 +111,41 @@ export class AuthService {
         }
       })
 
-      /* ================= NÍVEL 1 ================= */
+      /* ================= REFERRALS MULTINÍVEL ================= */
 
-      await tx.referral.create({
-        data: {
-          inviterId: inviter.id,
-          invitedId: newUser.id,
-          level: 1
-        }
-      })
+      let currentUser = inviter
 
-      /* ================= NÍVEIS 2 E 3 ================= */
+      for (let level = 1; level <= 3; level++) {
 
-      let current = inviter
+        if (!currentUser) break
 
-      for (let i = 1; i < 3; i++) {
-
-        if (!current.referredByCode) break
-
-        const next = await tx.user.findUnique({
+        // 🔥 PROTEÇÃO CONTRA DUPLICAÇÃO
+        const existsReferral = await tx.referral.findFirst({
           where: {
-            referralCode: current.referredByCode
-          }
-        })
-
-        if (!next) break
-
-        await tx.referral.create({
-          data: {
-            inviterId: next.id,
+            inviterId: currentUser.id,
             invitedId: newUser.id,
-            level: i + 1
+            level
           }
         })
 
-        current = next
+        if (!existsReferral) {
+          await tx.referral.create({
+            data: {
+              inviterId: currentUser.id,
+              invitedId: newUser.id,
+              level
+            }
+          })
+        }
+
+        // 🔥 SUBIR NA ÁRVORE
+        if (!currentUser.referredByCode) break
+
+        currentUser = await tx.user.findUnique({
+          where: {
+            referralCode: currentUser.referredByCode
+          }
+        }) as any
       }
 
       return newUser
