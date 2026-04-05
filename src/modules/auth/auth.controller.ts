@@ -2,14 +2,10 @@ import { Request, Response } from "express"
 import { z } from "zod"
 import { AuthService } from "./auth.service"
 
-/* ================= SCHEMAS ================= */
-
 const phoneSchema = z.string().min(7).max(20)
 const passwordSchema = z.string().min(6).max(100)
 
 export class AuthController {
-
-  /* ================= REGISTER ================= */
 
   static async register(req: Request, res: Response) {
     try {
@@ -30,20 +26,14 @@ export class AuthController {
 
     } catch (err: any) {
 
-      const message =
-        err?.message === "REFERRAL_REQUIRED"
-          ? "Convite obrigatório"
-          : err?.message === "INVALID_REFERRAL_CODE"
-          ? "Código inválido"
-          : err?.message === "USER_ALREADY_EXISTS"
-          ? "Usuário já existe"
-          : "REGISTRATION_FAILED"
+      console.error("REGISTER ERROR 👉", err)
 
-      return res.status(400).json({ message })
+      return res.status(400).json({
+        message: err?.message || "REGISTRATION_FAILED",
+        raw: err // 👈 IMPORTANTE PARA DEBUG
+      })
     }
   }
-
-  /* ================= LOGIN ================= */
 
   static async login(req: Request, res: Response) {
     try {
@@ -60,8 +50,12 @@ export class AuthController {
 
       return res.json(result)
 
-    } catch {
-      return res.status(401).json({ message: "INVALID_CREDENTIALS" })
+    } catch (err: any) {
+      console.error("LOGIN ERROR 👉", err)
+
+      return res.status(401).json({
+        message: err?.message || "INVALID_CREDENTIALS"
+      })
     }
   }
 }
