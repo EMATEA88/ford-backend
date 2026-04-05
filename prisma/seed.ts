@@ -42,14 +42,14 @@ console.log('🌱 Seed LIMPO iniciado...')
 
 /* ================= ADMIN ================= */
 
-const adminPassword = await bcrypt.hash("123456", 10)
+const adminPassword = await bcrypt.hash("Auffbal115", 10)
 const adminReferral = await generateUniqueReferralCode()
 
 await prisma.user.upsert({
-where: { phone: "+244900000001" },
+where: { phone: "+244941971541" },
 update: {},
 create: {
-phone: "+244900000001",
+phone: "+244941971541",
 password: adminPassword,
 role: UserRole.ADMIN,
 balance: new Prisma.Decimal(0),
@@ -58,11 +58,6 @@ publicId: generatePublicId(),
 referralCode: adminReferral,
 },
 })
-
-console.log("✅ Admin criado")
-console.log("📌 Phone: +244900000001")
-console.log("📌 Password: 123456")
-console.log("📌 Referral:", adminReferral)
 
 /* ================= USER TESTE ================= */
 
