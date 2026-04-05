@@ -42,6 +42,8 @@ async function generateUniqueReferralCode(): Promise<string> {
 
 export class AuthService {
 
+  /* ================= REGISTER ================= */
+
   static async register(
     phone: string,
     password: string,
@@ -119,26 +121,15 @@ export class AuthService {
 
         if (!currentUser) break
 
-        // 🔥 PROTEÇÃO CONTRA DUPLICAÇÃO
-        const existsReferral = await tx.referral.findFirst({
-          where: {
+        await tx.referral.createMany({
+          data: [{
             inviterId: currentUser.id,
             invitedId: newUser.id,
             level
-          }
+          }],
+          skipDuplicates: true
         })
 
-        if (!existsReferral) {
-          await tx.referral.create({
-            data: {
-              inviterId: currentUser.id,
-              invitedId: newUser.id,
-              level
-            }
-          })
-        }
-
-        // 🔥 SUBIR NA ÁRVORE
         if (!currentUser.referredByCode) break
 
         currentUser = await tx.user.findUnique({
