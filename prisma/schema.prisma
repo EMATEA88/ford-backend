@@ -724,13 +724,14 @@ enum LedgerType {
 model Referral {
   id          Int      @id @default(autoincrement())
   inviterId   Int
-  invitedId   Int      @unique
-  level       Int      // 1,2,3
+  invitedId   Int
+  level       Int
   createdAt   DateTime @default(now())
 
   inviter User @relation("UserInviter", fields: [inviterId], references: [id])
   invited User @relation("UserInvited", fields: [invitedId], references: [id])
 
+  @@unique([inviterId, invitedId, level]) // ✅ CORREÇÃO
   @@index([inviterId])
 }
 
