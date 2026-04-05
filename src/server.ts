@@ -56,7 +56,7 @@ app.use(
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
-  'https://ford-admin.onrender.com',
+  'https://ford-admin.netlify.app',
   'https://ford-8e7y.onrender.com',
   'https://ematea.org',
   'https://www.ematea.org',
