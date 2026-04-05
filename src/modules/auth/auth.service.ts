@@ -23,7 +23,7 @@ function generateReferralCode(): string {
   const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26))
   const numbers2 = Math.floor(100 + Math.random() * 900)
 
-  return `${numbers1}${letter}${numbers2}`
+  return `${numbers1}${letter}${numbers2}` // EX: 12345A678
 }
 
 async function generateUniqueReferralCode(): Promise<string> {
@@ -52,7 +52,9 @@ export class AuthService {
 
     const normalizedPhone = phone.trim()
 
-    if (!referralCode) {
+    const normalizedReferral = referralCode.trim().toUpperCase()
+
+    if (!normalizedReferral) {
       throw new Error("REFERRAL_REQUIRED")
     }
 
@@ -60,7 +62,7 @@ export class AuthService {
 
     const user = await prisma.$transaction(async (tx) => {
 
-      /* ================= DUPLICATE CHECK ================= */
+      /* ================= DUPLICATE ================= */
 
       const exists = await tx.user.findUnique({
         where: { phone: normalizedPhone }
@@ -73,16 +75,20 @@ export class AuthService {
       /* ================= REFERRAL ================= */
 
       const inviter = await tx.user.findUnique({
-        where: { referralCode }
+        where: { referralCode: normalizedReferral }
       })
 
       if (!inviter) {
         throw new Error("INVALID_REFERRAL_CODE")
       }
 
-      const myReferralCode = await generateUniqueReferralCode()
+      /* ================= ANTI SELF REFERRAL ================= */
 
-      /* ================= BONUS ================= */
+      if (inviter.phone === normalizedPhone) {
+        throw new Error("INVALID_REFERRAL_CODE")
+      }
+
+      const myReferralCode = await generateUniqueReferralCode()
 
       const BONUS = new Prisma.Decimal(100)
 
@@ -92,12 +98,12 @@ export class AuthService {
           password: hashedPassword,
           publicId: await generatePublicId(),
           referralCode: myReferralCode,
-          referredByCode: referralCode,
+          referredByCode: normalizedReferral,
           balance: BONUS
         }
       })
 
-      /* ================= LEDGER BONUS ================= */
+      /* ================= BONUS ================= */
 
       await tx.ledgerEntry.create({
         data: {
@@ -111,7 +117,7 @@ export class AuthService {
         }
       })
 
-      /* ================= NÍVEIS ================= */
+      /* ================= NÍVEL 1 ================= */
 
       await tx.referral.create({
         data: {
@@ -121,13 +127,18 @@ export class AuthService {
         }
       })
 
+      /* ================= NÍVEIS 2 E 3 ================= */
+
       let current = inviter
 
       for (let i = 1; i < 3; i++) {
+
         if (!current.referredByCode) break
 
         const next = await tx.user.findUnique({
-          where: { referralCode: current.referredByCode }
+          where: {
+            referralCode: current.referredByCode
+          }
         })
 
         if (!next) break
