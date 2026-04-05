@@ -100,8 +100,8 @@ app.use(compression())
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
-  'https://ematea.netlify.app',
-  'https://ematea-admin.netlify.app',
+  'https://ford-admin.onrender.com',
+  'https://ford-frontend.onrender.com',
   'https://ematea.org',
   'https://www.ematea.org',
   'capacitor://localhost',
