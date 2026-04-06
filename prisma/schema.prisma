@@ -772,7 +772,7 @@ model DailyTask {
 // =========================
 model Product {
   id           Int      @id @default(autoincrement())
-  name         String
+  name         String   @unique
   price        Decimal  @db.Decimal(18, 2)
   dailyRate    Decimal  @db.Decimal(18, 2)
   durationDays Int
