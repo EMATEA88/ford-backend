@@ -4,46 +4,6 @@ const LEVEL_PERCENTAGES = [0.1, 0.05, 0.02]
 
 export class ReferralService {
 
-  /* ================= COMISSÃO ================= */
-  static async processCommission(userId: number, amount: number) {
-
-    const referrals = await prisma.referral.findMany({
-      where: { invitedId: userId }
-    })
-
-    for (const ref of referrals) {
-
-      const percent = LEVEL_PERCENTAGES[ref.level - 1]
-      const commission = amount * percent
-
-      await prisma.user.update({
-        where: { id: ref.inviterId },
-        data: {
-          balance: { increment: commission }
-        }
-      })
-
-      await prisma.commission.create({
-        data: {
-          userId: ref.inviterId,
-          fromUserId: userId,
-          level: ref.level,
-          amount: commission,
-          type: 'PURCHASE'
-        }
-      })
-
-      await prisma.transaction.create({
-        data: {
-          userId: ref.inviterId,
-          type: 'COMMISSION',
-          amount: commission,
-          description: `Comissão nível ${ref.level}`
-        }
-      })
-    }
-  }
-
   /* ================= MEU TIME + LINK ================= */
   static async getMyTeam(userId: number) {
 
@@ -55,8 +15,11 @@ export class ReferralService {
 
     const link = `${process.env.FRONT_URL}/register?ref=${user.referralCode}`
 
+    /* ================= BUSCAR TODOS REFERRALS ================= */
     const referrals = await prisma.referral.findMany({
-      where: { inviterId: userId },
+      where: {
+        inviterId: userId
+      },
       include: {
         invited: {
           select: {
@@ -68,11 +31,34 @@ export class ReferralService {
       }
     })
 
-    const commissions = await prisma.commission.findMany({
-      where: { userId }
+    /* 🔥 BUSCAR NÍVEL 2 E 3 */
+    const level2And3 = await prisma.referral.findMany({
+      where: {
+        inviter: {
+          referredByCode: user.referralCode
+        }
+      },
+      include: {
+        invited: {
+          select: {
+            id: true,
+            phone: true,
+            createdAt: true
+          }
+        }
+      }
     })
 
-    const members = referrals.map(ref => {
+    const all = [...referrals, ...level2And3]
+
+    /* ================= COMISSÕES ================= */
+    const commissions = await prisma.commission.findMany({
+      where: {
+        userId
+      }
+    })
+
+    const members = all.map(ref => {
 
       const totalGenerated = commissions
         .filter(c => c.fromUserId === ref.invitedId)
