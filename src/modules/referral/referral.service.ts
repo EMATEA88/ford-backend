@@ -6,35 +6,50 @@ const LEVEL_PERCENTAGES = [0.1, 0.05, 0.02]
 export class ReferralService {
 
   static async createReferral(userId: number, referralCode?: string) {
-    if (!referralCode) return
+  if (!referralCode) return
 
-    let currentUser: User | null = await prisma.user.findUnique({
-      where: { referralCode }
-    })
+  // 🔹 encontra quem convidou (nível 1)
+  const inviter = await prisma.user.findUnique({
+    where: { referralCode }
+  })
 
-    if (!currentUser) return
+  if (!inviter) return
 
-    for (let level = 1; level <= 3; level++) {
-
-      if (!currentUser) break
-
-      await prisma.referral.create({
-        data: {
-          inviterId: currentUser.id,
-          invitedId: userId,
-          level
-        }
-      }).catch(() => {})
-
-      if (!currentUser.referredByCode) break
-
-      currentUser = await prisma.user.findUnique({
-        where: {
-          referralCode: currentUser.referredByCode
-        }
-      })
+  // 🔹 cria nível 1
+  await prisma.referral.create({
+    data: {
+      inviterId: inviter.id,
+      invitedId: userId,
+      level: 1
     }
+  }).catch(() => {})
+
+  // 🔹 buscar cadeia REAL no banco (não usar string)
+  const parents = await prisma.referral.findMany({
+    where: {
+      invitedId: inviter.id
+    },
+    orderBy: {
+      level: 'asc'
+    }
+  })
+
+  // 🔹 criar níveis 2 e 3 com base no histórico real
+  for (const parent of parents) {
+
+    const newLevel = parent.level + 1
+
+    if (newLevel > 3) continue
+
+    await prisma.referral.create({
+      data: {
+        inviterId: parent.inviterId,
+        invitedId: userId,
+        level: newLevel
+      }
+    }).catch(() => {})
   }
+}
 
   /* ================= COMISSÃO ================= */
   static async processCommission(userId: number, amount: number) {
