@@ -8,14 +8,21 @@ export class ReferralService {
   static async createReferral(userId: number, referralCode?: string) {
   if (!referralCode) return
 
-  // 🔹 encontra quem convidou (nível 1)
+  // 🔹 pega quem convidou
   const inviter = await prisma.user.findUnique({
     where: { referralCode }
   })
 
   if (!inviter) return
 
-  // 🔹 cria nível 1
+  // 🔹 pega TODOS os níveis do inviter
+  const inviterTree = await prisma.referral.findMany({
+    where: {
+      invitedId: inviter.id
+    }
+  })
+
+  // 🔹 nível 1
   await prisma.referral.create({
     data: {
       inviterId: inviter.id,
@@ -24,28 +31,18 @@ export class ReferralService {
     }
   }).catch(() => {})
 
-  // 🔹 buscar cadeia REAL no banco (não usar string)
-  const parents = await prisma.referral.findMany({
-    where: {
-      invitedId: inviter.id
-    },
-    orderBy: {
-      level: 'asc'
-    }
-  })
+  // 🔹 gerar níveis automaticamente
+  for (const ref of inviterTree) {
 
-  // 🔹 criar níveis 2 e 3 com base no histórico real
-  for (const parent of parents) {
+    const nextLevel = ref.level + 1
 
-    const newLevel = parent.level + 1
-
-    if (newLevel > 3) continue
+    if (nextLevel > 3) continue
 
     await prisma.referral.create({
       data: {
-        inviterId: parent.inviterId,
+        inviterId: ref.inviterId,
         invitedId: userId,
-        level: newLevel
+        level: nextLevel
       }
     }).catch(() => {})
   }
