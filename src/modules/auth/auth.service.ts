@@ -83,6 +83,7 @@ export class AuthService {
       const myReferralCode = await generateUniqueReferralCode()
       const BONUS = new Prisma.Decimal(100)
 
+      // 1. Cria o Usuário
       const newUser = await tx.user.create({
         data: {
           phone: normalizedPhone,
@@ -94,6 +95,18 @@ export class AuthService {
         }
       })
 
+      // 2. ✅ INICIALIZA A REFERRAL TREE (CACHE) PARA O NOVO USUÁRIO
+      // Isso evita erros quando o novo usuário tentar convidar alguém
+      await tx.referralTree.create({
+        data: {
+          userId: newUser.id,
+          level1Ids: [],
+          level2Ids: [],
+          level3Ids: []
+        }
+      })
+
+      // 3. Cria o registro de bônus no Ledger
       await tx.ledgerEntry.create({
         data: {
           userId: newUser.id,
@@ -109,7 +122,8 @@ export class AuthService {
       return newUser
     })
 
-    /* 🔥 AQUI FORA DA TRANSACTION (CORRETO) */
+    /* 🔥 CHAMADA DO SERVIÇO DE REFERRAL (PROCESSA NÍVEIS 1, 2 E 3) */
+    // Certifique-se de que o seu ReferralService já possui a lógica de cache que enviamos antes
     await ReferralService.createReferral(user.id, normalizedReferral)
 
     const token = signToken({
