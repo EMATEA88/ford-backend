@@ -115,28 +115,33 @@ export class AuthService {
 
       /* ================= REFERRALS MULTINÍVEL ================= */
 
-      let currentUser = inviter
+      let currentInviterId: number | null = inviter.id
 
       for (let level = 1; level <= 3; level++) {
 
-        if (!currentUser) break
+        if (!currentInviterId) break
 
         await tx.referral.createMany({
           data: [{
-            inviterId: currentUser.id,
+            inviterId: currentInviterId,
             invitedId: newUser.id,
             level
           }],
           skipDuplicates: true
         })
 
-        if (!currentUser.referredByCode) break
+        // 🔥 SUBIR NA ÁRVORE USANDO A TABELA REFERRAL (CORRETO)
+        const parent: { inviterId: number } | null = await tx.referral.findFirst({
+  where: {
+    invitedId: currentInviterId,
+    level: 1
+  },
+  select: {
+    inviterId: true
+  }
+})
 
-        currentUser = await tx.user.findUnique({
-          where: {
-            referralCode: currentUser.referredByCode
-          }
-        }) as any
+        currentInviterId = parent?.inviterId || null
       }
 
       return newUser
