@@ -43,8 +43,6 @@ async function generateUniqueReferralCode(): Promise<string> {
 
 export class AuthService {
 
-  /* ================= REGISTER ================= */
-
   static async register(
     phone: string,
     password: string,
@@ -108,12 +106,11 @@ export class AuthService {
         }
       })
 
-      /* ================= REFERRAL (CORRETO) ================= */
-
-      await ReferralService.createReferral(newUser.id, normalizedReferral)
-
       return newUser
     })
+
+    /* 🔥 AQUI FORA DA TRANSACTION (CORRETO) */
+    await ReferralService.createReferral(user.id, normalizedReferral)
 
     const token = signToken({
       id: user.id,
