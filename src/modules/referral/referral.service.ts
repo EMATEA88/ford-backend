@@ -1,64 +1,38 @@
 import { prisma } from '../../lib/prisma'
+import { User } from '@prisma/client'
 
 const LEVEL_PERCENTAGES = [0.1, 0.05, 0.02]
 
 export class ReferralService {
 
-  /* ================= CRIAR RELAÇÃO (CORRIGIDO) ================= */
   static async createReferral(userId: number, referralCode?: string) {
     if (!referralCode) return
 
-    const inviter = await prisma.user.findUnique({
+    let currentUser: User | null = await prisma.user.findUnique({
       where: { referralCode }
     })
 
-    if (!inviter) return
+    if (!currentUser) return
 
-    /* ================= LEVEL 1 ================= */
-    await prisma.referral.create({
-      data: {
-        inviterId: inviter.id,
-        invitedId: userId,
-        level: 1
-      }
-    }).catch(() => {})
+    for (let level = 1; level <= 3; level++) {
 
-    /* ================= LEVEL 2 ================= */
-    const parentLevel1 = await prisma.referral.findFirst({
-      where: {
-        invitedId: inviter.id,
-        level: 1
-      }
-    })
+      if (!currentUser) break
 
-    if (parentLevel1) {
       await prisma.referral.create({
         data: {
-          inviterId: parentLevel1.inviterId,
+          inviterId: currentUser.id,
           invitedId: userId,
-          level: 2
+          level
         }
       }).catch(() => {})
-    }
 
-    /* ================= LEVEL 3 ================= */
-    if (parentLevel1) {
-      const parentLevel2 = await prisma.referral.findFirst({
+      if (!currentUser.referredByCode) break
+
+      currentUser = await prisma.user.findUnique({
         where: {
-          invitedId: parentLevel1.inviterId,
-          level: 1
+          referralCode: currentUser.referredByCode
         }
       })
-
-      if (parentLevel2) {
-        await prisma.referral.create({
-          data: {
-            inviterId: parentLevel2.inviterId,
-            invitedId: userId,
-            level: 3
-          }
-        }).catch(() => {})
-      }
     }
   }
 
