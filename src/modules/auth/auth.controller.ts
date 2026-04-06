@@ -43,10 +43,21 @@ export class AuthController {
 
     } catch (err: any) {
 
-      console.error("REGISTER ERROR 👉", err.message)
+      console.error("REGISTER ERROR 👉", err)
 
-      return res.status(400).json({
-        message: err?.message || "REGISTRATION_FAILED"
+      // erros conhecidos
+      const knownErrors = [
+        "USER_ALREADY_EXISTS",
+        "INVALID_REFERRAL_CODE",
+        "REFERRAL_REQUIRED"
+      ]
+
+      if (knownErrors.includes(err.message)) {
+        return res.status(400).json({ message: err.message })
+      }
+
+      return res.status(500).json({
+        message: "INTERNAL_SERVER_ERROR"
       })
     }
   }
@@ -68,7 +79,7 @@ export class AuthController {
 
     } catch (err: any) {
 
-      console.error("LOGIN ERROR 👉", err.message)
+      console.error("LOGIN ERROR 👉", err)
 
       return res.status(401).json({
         message: err?.message || "INVALID_CREDENTIALS"

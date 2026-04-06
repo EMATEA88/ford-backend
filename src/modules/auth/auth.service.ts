@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma"
 import { hashPassword, comparePassword } from "../../utils/hash"
 import { signToken } from "../../utils/jwt"
 import { Prisma } from "@prisma/client"
+import { ReferralService } from "../referral/referral.service"
 
 /* ================= HELPERS ================= */
 
@@ -61,8 +62,6 @@ export class AuthService {
 
     const user = await prisma.$transaction(async (tx) => {
 
-      /* ================= DUPLICATE ================= */
-
       const exists = await tx.user.findUnique({
         where: { phone: normalizedPhone }
       })
@@ -70,8 +69,6 @@ export class AuthService {
       if (exists) {
         throw new Error("USER_ALREADY_EXISTS")
       }
-
-      /* ================= REFERRAL ================= */
 
       const inviter = await tx.user.findUnique({
         where: { referralCode: normalizedReferral }
@@ -99,8 +96,6 @@ export class AuthService {
         }
       })
 
-      /* ================= BONUS ================= */
-
       await tx.ledgerEntry.create({
         data: {
           userId: newUser.id,
@@ -113,33 +108,9 @@ export class AuthService {
         }
       })
 
-      /* ================= REFERRALS MULTINÍVEL ================= */
+      /* ================= REFERRAL (CORRETO) ================= */
 
-let currentUser: any = inviter
-
-for (let level = 1; level <= 3; level++) {
-
-  if (!currentUser) break
-
-  await tx.referral.createMany({
-    data: [{
-      inviterId: currentUser.id,
-      invitedId: newUser.id,
-      level
-    }],
-    skipDuplicates: true
-  })
-
-  if (!currentUser.referredByCode) break
-
-  const parent = await tx.user.findUnique({
-    where: {
-      referralCode: currentUser.referredByCode
-    }
-  })
-
-  currentUser = parent
-}
+      await ReferralService.createReferral(newUser.id, normalizedReferral)
 
       return newUser
     })

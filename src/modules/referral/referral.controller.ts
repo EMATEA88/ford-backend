@@ -3,17 +3,32 @@ import { ReferralService } from './referral.service'
 
 export class ReferralController {
   static async myTeam(req: Request, res: Response) {
-    if (!req.user) {
-  throw new Error('UNAUTHORIZED')
-}
+    try {
 
-const userId = req.user.id
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: 'UNAUTHORIZED'
+        })
+      }
 
-    const data = await ReferralService.getMyTeam(userId)
+      const userId = req.user.id
 
-    return res.json({
-      success: true,
-      data
-    })
+      const data = await ReferralService.getMyTeam(userId)
+
+      return res.json({
+        success: true,
+        data
+      })
+
+    } catch (error) {
+
+      console.error('REFERRAL ERROR 👉', error)
+
+      return res.status(500).json({
+        success: false,
+        message: 'FAILED_TO_LOAD_TEAM'
+      })
+    }
   }
 }
