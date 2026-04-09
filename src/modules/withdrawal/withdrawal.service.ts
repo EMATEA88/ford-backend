@@ -45,9 +45,9 @@ export class WithdrawalService {
       throw new Error('WITHDRAW_NOT_AVAILABLE_TODAY')
     }
 
-    // ⏰ HORÁRIO (10h - 20:59)
+    // ⏰ HORÁRIO (10h - 17:59)
     // Se forem 10h50 em Luanda, esta lógica agora permite o saque
-    if (hour < 10 || hour >= 21) {
+    if (hour < 10 || hour >= 18) {
       throw new Error('WITHDRAW_OUT_OF_HOURS')
     }
 
