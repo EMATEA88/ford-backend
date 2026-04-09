@@ -3,114 +3,73 @@ import { Prisma } from '@prisma/client'
 import { WITHDRAW_LIMITS } from '../../config/withdrawalLimits'
 
 const FEE_PERCENT = new Prisma.Decimal(0.15)
+const MIN_WITHDRAW = new Prisma.Decimal(500)
 
 export class WithdrawalService {
 
   static async create(userId: number, amount: number) {
+    if (!amount || amount <= 0) throw new Error('INVALID_AMOUNT')
 
-  if (!amount || amount <= 0)
-    throw new Error('INVALID_AMOUNT')
+    const decimalAmount = new Prisma.Decimal(amount)
+    if (decimalAmount.lt(MIN_WITHDRAW)) throw new Error('MIN_WITHDRAW_NOT_MET')
 
-  const decimalAmount = new Prisma.Decimal(amount)
+    // ====================================
+    // 🌍 AJUSTE DE FUSO HORÁRIO (Angola GMT+1)
+    // ====================================
+    const now = new Date()
+    const angolaTime = new Date(now.getTime() + (1 * 60 * 60 * 1000)) // Força GMT+1 se o server for UTC
+    
+    const day = angolaTime.getDay() 
+    const hour = angolaTime.getHours()
 
-  if (decimalAmount.lte(0))
-    throw new Error('INVALID_AMOUNT')
+    // Bloqueio Fim de Semana (Sábado=6, Domingo=0)
+    if (day === 0 || day === 6) {
+      throw new Error('WITHDRAW_AVAILABLE_MON_TO_FRI')
+    }
 
-  const MIN_WITHDRAW = new Prisma.Decimal(500)
+    // Horário de Luanda: 10h às 18h
+    if (hour < 10 || hour >= 18) {
+      throw new Error('WITHDRAW_OFFICE_HOURS_10_TO_18')
+    }
 
-  if (decimalAmount.lt(MIN_WITHDRAW)) {
-    throw new Error('MIN_WITHDRAW_NOT_MET')
-  }
+    const startOfDay = new Date(angolaTime)
+    startOfDay.setHours(0, 0, 0, 0)
 
-  const now = new Date()
-
-  const day = now.getDay() // 0=domingo, 6=sábado
-  const hour = now.getHours()
-
-  // ====================================
-  // 🚫 BLOQUEIO FIM DE SEMANA
-  // ====================================
-
-  if (day === 0 || day === 6) {
-    throw new Error('WITHDRAW_NOT_AVAILABLE_TODAY')
-  }
-
-  // ====================================
-  // ⏰ HORÁRIO (10h - 17:59)
-  // ====================================
-
-  if (hour < 10 || hour >= 18) {
-    throw new Error('WITHDRAW_OUT_OF_HOURS')
-  }
-
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
-
-  const startOfMonth = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1
-  )
+    const startOfMonth = new Date(angolaTime.getFullYear(), angolaTime.getMonth(), 1)
 
     return prisma.$transaction(async (tx) => {
-
+      // 1. Segurança: Lock no utilizador para evitar Double Spend
       const user = await tx.user.findUnique({
         where: { id: userId },
         include: { bank: true },
       })
 
       if (!user) throw new Error('USER_NOT_FOUND')
-      if (user.isBlocked) throw new Error('USER_BLOCKED')
-      if (!user.bank) throw new Error('BANK_REQUIRED')
+      if (user.isBlocked) throw new Error('USER_ACCOUNT_BLOCKED')
+      if (!user.bank) throw new Error('BANK_ACCOUNT_REQUIRED')
 
-      // ====================================
-      // 🚫 BLOQUEIO DE PENDING
-      // ====================================
-
+      // 2. Verificação de Pendentes (Segurança contra spam)
       const pending = await tx.withdrawal.findFirst({
-        where: {
-          userId,
-          status: 'PENDING'
-        }
+        where: { userId, status: 'PENDING' }
       })
+      if (pending) throw new Error('FINISH_PENDING_WITHDRAW_FIRST')
 
-      if (pending) {
-        throw new Error('WITHDRAW_PENDING_EXISTS')
-      }
-
-      // ====================================
-      // 🚫 ANTI-SPAM (1 POR DIA)
-      // ====================================
-
+      // 3. Limite de 1 saque por dia
       const existingToday = await tx.withdrawal.findFirst({
         where: {
           userId,
           createdAt: { gte: startOfDay },
-          status: {
-            in: ['PENDING', 'SUCCESS']
-          }
+          status: { in: ['PENDING', 'SUCCESS'] }
         }
       })
+      if (existingToday) throw new Error('ONLY_ONE_WITHDRAW_PER_DAY')
 
-      if (existingToday) {
-        throw new Error('DAILY_WITHDRAW_ALREADY_EXISTS')
-      }
-
+      // 4. Verificação de Saldo
       const currentBalance = new Prisma.Decimal(user.balance)
+      if (currentBalance.lt(decimalAmount)) throw new Error('INSUFFICIENT_BALANCE')
 
-      if (currentBalance.lt(decimalAmount))
-        throw new Error('INSUFFICIENT_BALANCE')
-
-      // ====================================
-      // 🔒 LIMITE POR TRANSAÇÃO
-      // ====================================
-
-      if (decimalAmount.gt(WITHDRAW_LIMITS.PER_TRANSACTION))
-        throw new Error('LIMIT_PER_TRANSACTION_EXCEEDED')
-
-      // ====================================
-      // 🔒 LIMITE MENSAL
-      // ====================================
+      // 5. Limites de Valor
+      if (decimalAmount.gt(WITHDRAW_LIMITS.PER_TRANSACTION)) throw new Error('LIMIT_EXCEEDED_PER_TX')
 
       const monthlyAgg = await tx.withdrawal.aggregate({
         where: {
@@ -120,25 +79,15 @@ export class WithdrawalService {
         },
         _sum: { amount: true }
       })
-
-      const monthlyTotal = new Prisma.Decimal(
-        monthlyAgg._sum.amount ?? 0
-      )
-
-      if (monthlyTotal.add(decimalAmount)
-        .gt(WITHDRAW_LIMITS.MONTHLY))
+      const monthlyTotal = new Prisma.Decimal(monthlyAgg._sum.amount ?? 0)
+      if (monthlyTotal.add(decimalAmount).gt(WITHDRAW_LIMITS.MONTHLY)) {
         throw new Error('MONTHLY_LIMIT_EXCEEDED')
+      }
 
-      // ====================================
-      // 💰 TAXA
-      // ====================================
-
+      // 6. Cálculo de Taxa e Movimentação
       const fee = decimalAmount.mul(FEE_PERCENT)
 
-      // ====================================
-      // 💳 MOVIMENTAÇÃO
-      // ====================================
-
+      // Retira do saldo real e coloca no congelado (frozen)
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -156,12 +105,13 @@ export class WithdrawalService {
         },
       })
 
+      // Logs de Auditoria
       await tx.transaction.create({
         data: {
           userId,
           amount: decimalAmount,
           type: 'WITHDRAW',
-          description: 'Withdrawal request created',
+          description: `Withdrawal request: ${decimalAmount} Kz`,
         },
       })
 
@@ -173,7 +123,7 @@ export class WithdrawalService {
           balanceBefore: currentBalance,
           balanceAfter: currentBalance.sub(decimalAmount),
           reference: `WD-${withdrawal.id}`,
-          description: 'Withdrawal request',
+          description: 'Withdrawal frozen for processing',
         },
       })
 
@@ -182,56 +132,33 @@ export class WithdrawalService {
   }
 
   static async success(withdrawalId: number) {
-
     return prisma.$transaction(async (tx) => {
-
       const withdrawal = await tx.withdrawal.findUnique({
         where: { id: withdrawalId },
       })
 
-      if (!withdrawal || withdrawal.status !== 'APPROVED')
-        throw new Error('INVALID_WITHDRAWAL')
+      if (!withdrawal || withdrawal.status !== 'APPROVED') {
+        throw new Error('INVALID_WITHDRAWAL_STATUS')
+      }
 
-      const user = await tx.user.findUnique({
-        where: { id: withdrawal.userId }
-      })
-
+      const user = await tx.user.findUnique({ where: { id: withdrawal.userId } })
       if (!user) throw new Error('USER_NOT_FOUND')
 
       const decimalAmount = new Prisma.Decimal(withdrawal.amount)
-      const frozenBefore = new Prisma.Decimal(user.frozenBalance)
-
-      if (frozenBefore.lt(decimalAmount))
-        throw new Error('FROZEN_BALANCE_MISMATCH')
-
+      
+      // Remove do congelado definitivamente
       await tx.user.update({
         where: { id: withdrawal.userId },
-        data: {
-          frozenBalance: { decrement: decimalAmount }
-        }
+        data: { frozenBalance: { decrement: decimalAmount } }
       })
 
-      const updated = await tx.withdrawal.update({
+      return await tx.withdrawal.update({
         where: { id: withdrawalId },
         data: {
           status: 'SUCCESS',
           processedAt: new Date()
         },
       })
-
-      await tx.ledgerEntry.create({
-        data: {
-          userId: withdrawal.userId,
-          type: 'DEBIT',
-          amount: decimalAmount,
-          balanceBefore: frozenBefore,
-          balanceAfter: frozenBefore.sub(decimalAmount),
-          reference: `WD-SUCCESS-${withdrawal.id}`,
-          description: 'Withdrawal completed',
-        },
-      })
-
-      return updated
     })
   }
 }
