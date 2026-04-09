@@ -130,14 +130,17 @@ export class WithdrawalService {
         },
       })
 
-      const withdrawal = await tx.withdrawal.create({
-        data: {
-          userId,
-          amount: decimalAmount,
-          fee,
-          status: 'PENDING',
-        },
-      })
+      const netAmount = decimalAmount.sub(fee)
+
+const withdrawal = await tx.withdrawal.create({
+  data: {
+    userId,
+    amount: decimalAmount,
+    fee,
+    netAmount, // 🔥 ADICIONA ISSO
+    status: 'PENDING',
+  },
+})
 
       // 7. Auditoria e Logs
       await tx.transaction.create({
